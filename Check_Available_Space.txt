@@ -1,0 +1,114 @@
+/***************************************************************************************************
+   @Author       radhika.sood
+   @name         Check_Available_Space
+   @CreateDate   14/01/2018
+   @Description  This is Apex Schedulable Class which will call Clean_Old_Transaction_Data Batch Class.
+******************************************************************************************************/
+
+ global class Check_Available_Space implements Schedulable{
+    global String query1;
+    public String Method = 'GET';
+          
+  /**
+      * @description       This method calls Clean_Old_Transaction_Data class
+      * @param             context A reference to the SchedulableContext object
+      * @return            void
+      * @throws            NA
+  */
+    global void execute(SchedulableContext sc){
+
+        Automate_cleanup_objects_list__c obj = Automate_cleanup_objects_list__c.getOrgDefaults();
+        List<Automate_cleanup_objects_list__c> objectList = Automate_cleanup_objects_list__c.getall().values();
+        
+        List<Organization> sandbox = [SELECT IsSandbox FROM Organization];
+        try{
+        if(sandbox.size()>0){
+            if (sandbox[0].IsSandbox){ 
+                String sid = UserInfo.getSessionId();
+                HttpRequest req = new HttpRequest();
+                req.setMethod(Method);
+                req.setEndpoint(URL.getSalesforceBaseUrl().toExternalForm()+ '/services/data/v32.0/limits'); 
+                req.setHeader(UTIL_Constants.FILE_REST_APP_AUTHORIZATION, 'OAuth '+ sid);
+                Map<String, Object> m = new Map<String, Object>();
+                Map<String, Object> dataStorage = new Map<String, Object>();
+                integer max = 0;
+                integer remaining = 0;      
+                integer threshold = 0;
+                decimal thresholdPercent = obj.thresholdValue__c;
+                if(!(Test.isRunningTest())) {                       
+                    Http http = new Http();
+                    HTTPResponse res = http.send(req);
+                    m = (Map<String,Object>)JSON.deserializeUntyped(res.getBody());
+                    dataStorage = (Map<String,Object>)m.get('DataStorageMB');
+                    max= Integer.valueOf(dataStorage.get('Max')); 
+                    remaining = Integer.valueOf(dataStorage.get('Remaining'));
+
+                } else {
+                    max = 10; 
+                    remaining = 9;
+                }
+                integer diff = (max-remaining);             
+                if(Test.isRunningTest())
+                    threshold= (max * 0.01).intValue();
+                else
+                    threshold= (max * (thresholdPercent)).intValue();
+                if (diff < threshold){
+                    
+                    integer batchSize = integer.ValueOf(obj.BatchSize__c);
+                    if(objectList.size()>0){
+                      Clean_Old_Transaction_Data md;
+                            String query1='';
+                            if(obj.Object_Name__c != null && obj.Cleanup_Data_Number_of_days__c >=0){
+                                decimal qfrom =(obj.Cleanup_Data_Number_of_days__c )* -1;
+                                string dd = system.now().addDays(qfrom.intValue()).format('yyyy-MM-dd\'T\'HH:mm:ss.SSS\'Z\'');
+                                String getObjects= obj.Object_Name__c;
+                                String[] listofobjects = getObjects.split('\\;');
+                                    for(String objname: listofobjects){
+                                        query1 = 'SELECT ID FROM ' + objname + ' WHERE LastModifiedDate >= '+ dd+ ' ';                              
+                                        md = new Clean_Old_Transaction_Data();
+                                        md.query=query1;
+                                        Id mybatchId = Database.executeBatch(md,batchSize);
+                                }                            
+                            }
+                          
+                        }
+                  }
+              }
+        }
+    }
+
+catch(Exception ex){
+UTIL_LoggingService.logHandledException(ex, UserInfo.getOrganizationId(), UTIL_Constants.APPLICATION_NAME_MMS,  UTIL_Constants.CLASS_Check_Available_Space,  UTIL_Constants.METHOD_execute, null,  LoggingLevel.ERROR);
+ }
+
+}
+  /**
+      * @description       This method schedules the Clean_Old_Transaction_Data class.
+      * @return            void
+      * @throws            NA
+  **/
+     public static void SchedulerMethod() {
+        String jobId;
+        List<CronJobDetail> cronList=  new List<CronJobDetail>([SELECT Id, Name, JobType   FROM CronJobDetail]);
+        for(CronJobDetail cronJob:cronList){
+            if('Clean_Old_Transaction_Data-Daily_job'.equals(cronJob.Name)){
+                jobId = cronJob.id;
+                break;
+            }    
+        }    
+        CronTrigger ct = null;
+        try{
+            ct = [SELECT Id, CronExpression, TimesTriggered, NextFireTime,State FROM CronTrigger WHERE CronJobDetailId = :jobId]; 
+        }catch(Exception ex){
+        }
+
+        Check_Available_Space updateBatch = new Check_Available_Space();    
+        Automate_cleanup_objects_list__c obj = Automate_cleanup_objects_list__c.getOrgDefaults();
+        String timeinterval = obj.TimeInterval__c;   
+
+        if(ct == null){
+            System.schedule('Clean_Old_Transaction_Data-Daily_job', timeinterval , updateBatch);
+        }
+    }   
+
+   }

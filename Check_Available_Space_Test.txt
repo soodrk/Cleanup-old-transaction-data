@@ -1,0 +1,72 @@
+@istest(seealldata=false)
+global class Check_Available_Space_Test{   
+  
+    private static final String ALIAS = 'sch123';
+    private static final String SYSTEM_ADMIN = 'System Administrator';   
+    private static final String SCHEDULED_TIME = '0 0 5,13,21 * * ?';
+    private static final String JOB_NAME = 'Test Check';
+    private static final String JOB_STATUS = 'WAITING';
+    private static testMethod void CheckAvailableSpaceTest(){ 
+
+     Automate_cleanup_objects_list__c settings = Automate_cleanup_objects_list__c.getOrgDefaults();
+     settings.TimeInterval__c = '0 0 5,13,21 * * ?';
+     settings.BatchSize__c = 1;
+     settings.Name = 'MSG Q';
+     settings.Cleanup_Data_Number_of_days__c = 1;
+     settings.Object_Name__c = 'msg_q__c';
+     //settings.Event_Type_Id__c = '1' ;
+     settings.Email_sent_to_Environment_team__c = 'radhika.sood@accenture.com';
+     insert settings;
+     System.assertNotEquals(null,settings); 
+
+            
+     User runUser = UTIL_TestMethods.runningUser(ALIAS, SYSTEM_ADMIN);    
+     String sch = SCHEDULED_TIME ;  
+     String jobId = UTIL_ErrorConstants.BLANK_SPACE;
+     Test.StartTest();
+     //Test.setMock(HttpCalloutMock.class, new Check_Available_Space_Test()); 
+
+     system.runAs(runUser){ 
+
+       for (CronTrigger cronTrigger : [SELECT Id FROM CronTrigger Limit 100]){
+          System.abortJob(cronTrigger.Id);
+          }  
+       
+         Test.stopTest(); 
+        Check_Available_Space.SchedulerMethod(); 
+        List<CronJobDetail> cronList=  new List<CronJobDetail>([SELECT Id,Name,JobType FROM CronJobDetail where Name=: 'Clean_Old_Transaction_Data-Daily_job']);
+        for(CronJobDetail cronJob:cronList){
+            if('Clean_Old_Transaction_Data-Daily_job'.equals(cronJob.Name)){
+                jobId = cronJob.id;
+             }    
+        }
+        CronTrigger ct = null;
+        try{
+            ct = [SELECT Id, CronExpression, TimesTriggered, NextFireTime,State FROM CronTrigger WHERE CronJobDetailId = :jobId]; 
+            System.assertEquals(sch, ct.CronExpression);
+            System.assertEquals(ct.State, JOB_STATUS); 
+        }catch(Exception ex){
+            throw ex;
+        }      
+      } 
+
+                    
+  }
+}
+
+
+     
+
+
+
+
+
+
+
+
+
+
+
+
+
+

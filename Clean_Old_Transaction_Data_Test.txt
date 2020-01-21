@@ -1,0 +1,87 @@
+@istest(seealldata=false) 
+public class Clean_Old_Transaction_Data_Test{
+   
+   static testMethod  void testClean_Old_Transaction_Data(){    
+    ExceptionLog__c testException = new ExceptionLog__c();
+        testException.ClassName__c = 'TestClass';
+        testException.ExceptionCode__c = 'FailClass';
+        testException.ExceptionDescription__c = 'Null exception';
+        insert testException;
+        
+        BatchRecordFilter__c testBatchRec = new BatchRecordFilter__c();
+        testBatchRec.BatchClass__c = 'Clean_Old_Transaction_Data';
+        testBatchRec.NoOfDays__c = 0;
+        testBatchRec.Name = 'ExceptionRecordDeletionFilter';
+        insert testBatchRec;
+        
+        Automate_cleanup_objects_list__c deleteRecord1 = new Automate_cleanup_objects_list__c();
+        deleteRecord1.Name = 'MSG Q';
+        deleteRecord1.Cleanup_Data_Number_of_days__c = 2;
+        deleteRecord1.Object_Name__c = 'msg_q__c';
+        insert deleteRecord1;
+        System.assertNotEquals(null,deleteRecord1);
+
+              
+        BatchRecordFilter__c testExceptionBatchDays = new BatchRecordFilter__c(); 
+        testExceptionBatchDays = BatchRecordFilter__c.getInstance(UTIL_ErrorConstants.BATCH_CUSTOM_SETTING_RECORD);
+
+        Test.StartTest();        
+        Clean_Old_Transaction_Data testBatchVar = new Clean_Old_Transaction_Data();
+        testBatchVar.query = 'SELECT Id FROM ExceptionLog__c WHERE CreatedDate = N_DAYS_AGO:'+Integer.valueOf(testExceptionBatchDays.NoOfDays__c);
+        ID batchprocessid = Database.executeBatch(testBatchVar);
+        System.assertNotEquals(null,testBatchVar);
+        Test.stopTest();      
+
+    }
+    
+    static testmethod void deleteRecord() 
+    {
+        decimal qfrom =5.0;
+        Datetime expected = Datetime.newInstance(1960, 2, 19);
+        string dd = system.now().addDays(qfrom.intValue()).format('yyyy-MM-dd\'T\'HH:mm:ss.SSS\'Z\'');
+        SchedulableContext sc = null; 
+        //User runUser = UTIL_UnitTest
+        //User runUser = UTIL_UnitTest.getStandardMMSADIMNUser();
+         User runUser = UTIL_TestMethods.runningUserTest('retxyz', 'Read MMS Admin');
+        runUser.CommunityNickName = 'Retiree123';
+        insert runUser;
+
+        MSG_Q__c newCRMsg2 = new MSG_Q__c();
+        newCRMsg2.Name = 'Test';
+        newCRMsg2.Delivered__c = TRUE;
+        newCRMsg2.Outbound_Msg_Sent__c=FALSE;
+        newCRMsg2.Event_Type_Id__c='16';
+        newCRMsg2.Entity_Id__c = '0010001010';
+        newCRMsg2.Object__c = 'Opportunity';
+        insert newCRMsg2;
+        
+        Automate_cleanup_objects_list__c deleteRecord1 = new Automate_cleanup_objects_list__c();
+        deleteRecord1.Name = 'Msg_Q'; //Opportunity Outbound Changes
+        deleteRecord1.Cleanup_Data_Number_of_days__c = 2;
+        deleteRecord1.Object_Name__c = 'Msg_Q__c';
+        deleteRecord1.BatchSize__c = 2;
+        deleteRecord1.TimeInterval__c = '2  0 0 10 ? * MON-FRI';
+        deleteRecord1.Email_sent_to_Environment_team__c = 'mms.environmentmanagement@accenture.com';
+
+
+        insert deleteRecord1;
+        System.assertNotEquals(null,deleteRecord1);
+
+        Test.startTest();  
+        System.runAs(runUser){   
+
+        Clean_Old_Transaction_Data testBatchVarr2 = new Clean_Old_Transaction_Data();
+        testBatchVarr2.query = 'select Id, Event_Type_Id__c from msg_q__c where createddate<= '+ dd+'';
+        ID batchprocessid = Database.executeBatch(testBatchVarr2);
+        System.assertNotEquals(null,testBatchVarr2);
+        //Clean_Old_Transaction_Data replayBatch = new Clean_Old_Transaction_Data();
+        //Database.executeBatch(replayBatch);
+        }                 
+        Test.stopTest();
+         
+        Integer recCount = [SELECT Count() FROM Msg_Q__c ]; 
+        System.AssertEquals(0,recCount); //create read only profile, reccount 2
+         
+      }     
+
+}

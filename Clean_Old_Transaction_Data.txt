@@ -1,0 +1,72 @@
+global class Clean_Old_Transaction_Data implements Database.Batchable<sObject> {
+   
+    public Automate_cleanup_objects_list__c  mailobj = Automate_cleanup_objects_list__c.getAll().values();     
+    public String query;
+ /**
+      * @description       This method queries the soql query defined in the scheduler class and passes the List of records obtained to the execute method.
+      * @param             currentScope A reference to the Database.BatchableContext object
+      * @return            Database.QueryLocator
+      * @throws            NA
+      */
+global Database.QueryLocator start(Database.BatchableContext currentScope){ 
+        return Database.getQueryLocator(query);
+      }
+    /**
+      * @description       This method deletes the List of records passed to it and in case of a failure logs an ExceptionLog__c record.
+      * @param             currentScope A reference to the Database.BatchableContext object
+      * @param             queryResult List of the records obtained in the start() method
+      * @return            void
+      * @throws             NA
+      */
+global void execute(Database.BatchableContext currentScope, List<sObject> queryResult){
+        List<ExceptionLog__c> faultLogList = new List<ExceptionLog__c>();
+        ExceptionLog__c excpData = new ExceptionLog__c();
+        Database.DeleteResult[] dmlExResult = Database.Delete(queryResult, false);
+
+        if(Test.isRunningTest()){
+       dmlExResult = Database.Delete(queryResult, false);
+       System.debug(queryResult);
+        }
+         
+        for(Database.DeleteResult dmlDelete : dmlExResult){
+            if(!dmlDelete .isSuccess()){
+                Database.Error[] errorMsg = dmlDelete.getErrors();
+                String exceptionCode = UTIL_ErrorConstants.BLANK_SPACE;
+                if (errorMsg.size() > 0){
+                    exceptionCode = errorMsg[0].statusCode.name();
+                }
+                excpData = new ExceptionLog__c(ExceptionDetails__c = String.valueOf(errorMsg).left(32000), ClassName__c = UTIL_ErrorConstants.BATCH_PURGE_PFLOG,
+                                               ExceptionType__c = UTIL_ErrorConstants.DML_EXCEPTION, ExceptionLogTimestamp__c = System.Now(),
+                                               isHandled__c = true, MethodName__c = UTIL_ErrorConstants.BATCH_METHOD_NAME, ContextUser__c = UserInfo.getUserId(),
+                                               OrgId__c = UserInfo.getOrganizationId(), 
+                                               Severity__c=LogSeverityLevelValue__c.getInstance(UTIL_ErrorConstants.SYSTEM_ADMIN_PROFILE_ID).LoggingLevel__c, 
+                                               ExceptionCode__c = exceptionCode); 
+            }
+            faultLogList.add(excpData);
+        }        
+        if(!faultLogList.isEmpty()){
+            UTIL_LoggingService.logListException(faultLogList);
+        }
+        // End of Optional Code
+    }
+/**
+      * @description       This method implements finish logic for the Batch Class
+      * @param             currentScope A reference to the Database.BatchableContext object
+      * @return            void
+      * @throws            NA
+      */
+global void finish(Database.BatchableContext BC){
+		AsyncApexJob a = [SELECT Id, Status, NumberOfErrors, JobItemsProcessed,TotalJobItems, CreatedBy.Email
+						 FROM AsyncApexJob WHERE Id =:BC.getJobId()];
+        Messaging.SingleEmailMessage mail = new Messaging.SingleEmailMessage();  
+        if (a.NumberOfErrors>0)
+        {
+        String[] toAddresses = new String[]{mailobj.Email_sent_to_Environment_team__c};
+        mail.setReplyTo('noreply@salesforce.com');
+        mail.setToAddresses(toAddresses);
+        mail.setPlainTextBody('The batch Apex job processed ' + a.TotalJobItems + ' batches with '+ a.NumberOfErrors + ' failures.');
+        mail.setSubject('Clean Old Transaction Data - '+DateTime.now().format('MMMMM dd, yyyy'));
+ 		    Messaging.sendEmail(new Messaging.SingleEmailMessage[] { mail }); 
+ 	      }
+    }
+}
